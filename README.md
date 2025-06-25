@@ -14,7 +14,7 @@ A personal, highly configurable plotting style package for Matplotlib with advan
 Clone this repository and install locally:
 
 ```bash
-git clone https://github.com/yourusername/matplotlib-latex-config.git
+git clone https://github.com/GaiusSheh/matplotlib-latex-config.git
 cd matplotlib-latex-config
 pip install .
 ```
