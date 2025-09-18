@@ -10,6 +10,112 @@ Contains two main functions:
 
 import matplotlib as mpl
 import warnings
+import os
+import shutil
+import platform
+
+
+def _find_latex_installation():
+    """
+    Automatically detect LaTeX installation and add to PATH if needed.
+    Returns a dictionary of available TeX systems.
+    """
+    available_tex = {}
+
+    # Check if already in PATH
+    for tex_system in ['lualatex', 'xelatex', 'pdflatex']:
+        if shutil.which(tex_system):
+            available_tex[tex_system] = shutil.which(tex_system)
+
+    # If all found, return early
+    if len(available_tex) == 3:
+        return available_tex
+
+    # Platform-specific search for LaTeX installations
+    search_paths = []
+
+    if platform.system() == "Windows":
+        # Common MiKTeX installation paths
+        username = os.environ.get('USERNAME', '')
+        search_paths = [
+            f"C:\\Users\\{username}\\AppData\\Local\\Programs\\MiKTeX\\miktex\\bin\\x64",
+            "C:\\Program Files\\MiKTeX\\miktex\\bin\\x64",
+            "C:\\Program Files (x86)\\MiKTeX\\miktex\\bin\\x64",
+            # TeX Live paths
+            "C:\\texlive\\2023\\bin\\win64",
+            "C:\\texlive\\2024\\bin\\win64",
+            "C:\\texlive\\2025\\bin\\win64",
+        ]
+    elif platform.system() == "Darwin":  # macOS
+        search_paths = [
+            "/usr/local/texlive/2023/bin/x86_64-darwin",
+            "/usr/local/texlive/2024/bin/x86_64-darwin",
+            "/usr/local/texlive/2025/bin/x86_64-darwin",
+            "/Library/TeX/texbin",
+            "/opt/homebrew/bin",
+        ]
+    elif platform.system() == "Linux":
+        search_paths = [
+            "/usr/bin",
+            "/usr/local/bin",
+            "/opt/texlive/2023/bin/x86_64-linux",
+            "/opt/texlive/2024/bin/x86_64-linux",
+            "/opt/texlive/2025/bin/x86_64-linux",
+        ]
+
+    # Search for LaTeX executables
+    found_path = None
+    for path in search_paths:
+        if os.path.exists(path):
+            # Check if tex executables exist in this path
+            tex_found = 0
+            for tex_system in ['lualatex', 'xelatex', 'pdflatex']:
+                exe_name = f"{tex_system}.exe" if platform.system() == "Windows" else tex_system
+                exe_path = os.path.join(path, exe_name)
+                if os.path.exists(exe_path):
+                    available_tex[tex_system] = exe_path
+                    tex_found += 1
+
+            if tex_found >= 2:  # Found at least 2 TeX systems
+                found_path = path
+                break
+
+    # Add to PATH if found and not already there
+    if found_path:
+        current_paths = os.environ.get("PATH", "").split(os.pathsep)
+        # Normalize paths for comparison (handle case sensitivity and trailing separators)
+        normalized_current_paths = [os.path.normcase(os.path.normpath(p)) for p in current_paths]
+        normalized_found_path = os.path.normcase(os.path.normpath(found_path))
+
+        if normalized_found_path not in normalized_current_paths:
+            print(f"Found LaTeX installation at: {found_path}")
+            print("Adding to PATH for current session...")
+            os.environ["PATH"] = found_path + os.pathsep + os.environ["PATH"]
+        else:
+            print(f"LaTeX installation already in PATH: {found_path}")
+
+        # Re-check availability after adding to PATH
+        for tex_system in ['lualatex', 'xelatex', 'pdflatex']:
+            if tex_system not in available_tex and shutil.which(tex_system):
+                available_tex[tex_system] = shutil.which(tex_system)
+
+    return available_tex
+
+
+def _get_fallback_tex_system(available_tex, preferred="lualatex"):
+    """
+    Get the best available TeX system, with fallback logic.
+    """
+    if preferred in available_tex:
+        return preferred
+
+    # Fallback order: lualatex -> xelatex -> pdflatex
+    fallback_order = ['lualatex', 'xelatex', 'pdflatex']
+    for tex_system in fallback_order:
+        if tex_system in available_tex:
+            return tex_system
+
+    return None
 
 
 def set_general_params(
@@ -40,6 +146,7 @@ def setup_plot_style(
     use_default_latex=False,
     latex_sans_text=False,
     # --- Parameters for the PGF (Custom LaTeX) branch ---
+    tex_system="lualatex",  # New parameter: "lualatex" (default), "xelatex", or "pdflatex"
     main_font=None,
     sans_font=None,
     math_font=None,
@@ -51,9 +158,12 @@ def setup_plot_style(
 ):
     """
     Sets up complex plotting backends and font configurations based on flags.
-    
-    New PGF Parameters:
-    -------------------
+
+    PGF Parameters:
+    ---------------
+    tex_system : str, optional
+        TeX system to use with PGF backend. Options: "lualatex" (default), "xelatex", "pdflatex".
+        LuaLaTeX and XeLaTeX provide full Unicode support and system font access.
     mathrm_font : str, optional
         Font for the \\mathrm command in math mode. Defaults to 'Cambria'.
     mathcal_font : str, optional
@@ -95,6 +205,32 @@ def setup_plot_style(
         # --- Branch 1b: Use Custom Font LaTeX (PGF) ---
         else:
             print("--> Sub-mode: Custom font LaTeX via PGF backend.")
+
+            # Auto-detect LaTeX installation
+            print("----> Detecting LaTeX installation...")
+            available_tex = _find_latex_installation()
+
+            if not available_tex:
+                warnings.warn(
+                    "No LaTeX installation found. Please install MiKTeX or TeX Live and ensure "
+                    "it's in your system PATH. See README for installation instructions.",
+                    UserWarning
+                )
+                return
+
+            # Auto-select or validate tex_system
+            if tex_system not in available_tex:
+                fallback_tex = _get_fallback_tex_system(available_tex, tex_system)
+                if fallback_tex:
+                    print(f"----> '{tex_system}' not found, using '{fallback_tex}' instead")
+                    tex_system = fallback_tex
+                else:
+                    warnings.warn(
+                        f"No compatible LaTeX engine found. Available: {list(available_tex.keys())}",
+                        UserWarning
+                    )
+                    return
+
             try:
                 mpl.use("pgf")
                 print("----> PGF backend activated.")
@@ -143,12 +279,13 @@ def setup_plot_style(
 
             # --- Apply the configuration ---
             pgf_config = {
-                'pgf.texsystem': "xelatex",
+                'pgf.texsystem': tex_system,
                 'text.usetex': True,
                 'pgf.rcfonts': False,
                 'pgf.preamble': "\n".join(pgf_preamble)
             }
             mpl.rcParams.update(pgf_config)
+            print(f"----> TeX system: {tex_system}")
             print(f"----> Fonts set: Main='{main_font}', Math='{math_font}', "
                   f"mathrm='{mathrm_font}', mathcal='{mathcal_font}', special='{special_font}'.")
 
