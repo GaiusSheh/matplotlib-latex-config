@@ -262,6 +262,7 @@ def setup_plot_style(
                 r"\usepackage{fontspec}",
                 r"\usepackage{unicode-math}",
                 r"\usepackage[UTF8]{ctex}",  # Add ctex for CJK support
+                r"\usepackage{upgreek}" # used for upright Greek letters like \upmu
             ]
             
             # Add font settings to the preamble
